@@ -1,0 +1,197 @@
+{
+	"AWSTemplateFormatVersion": "2010-09-09",
+	"Description": "Creates required AWS resources for the iot-reminder application.",
+	"Parameters": {
+		"IoTButtonDSN": {
+		  "Type": "String",
+		  "Description": "The device serial number (DSN) of the AWS IoT Button. This can be found on the back of the button.",
+		  "AllowedPattern": "G030JF05[0-9][0-5][0-9][1-7][0-9A-HJ-NP-X][0-9A-HJ-NP-X][0-9A-HJ-NP-X][0-9A-HJ-NP-X]"
+		},
+		"IoTCertificateARN": {
+			"Type": "String",
+	  		"Description": "The Amazon Resource Name (ARN) of the existing AWS IoT certificate."
+		},
+		"SNSTopicName": {
+			"Type": "String",
+			"Description": "The name of the Amazon SNS topic that will receive messages to forward via SMS.",
+			"Default": "iot-reminder-topic"
+		},
+		"PhoneNumber": {
+			"Type": "String",
+			"Description": "The phone number that will receive SMS notifications from the iot-reminder application."
+		}
+	},
+	"Resources": {
+		"IoTButton": {
+			"Type": "AWS::IoT::Thing",
+			"Properties": {
+				"ThingName": {
+					"Fn::Join": ["", ["iotbutton_", { "Ref": "IoTButtonDSN" }]]
+				}
+			}
+		},
+
+		"IoTButtonPolicy": {
+			"Type": "AWS::IoT::Policy",
+			"Properties": {
+				"PolicyDocument": {
+					"Version": "2012-10-17",
+					"Statement": [
+						{
+							"Action": "iot:Publish",
+							"Effect": "Allow",
+							"Resource": {
+								"Fn::Join": [
+									"",
+									[
+										"arn:aws:iot:",
+										{ "Ref": "AWS::Region" },
+										":",
+										{ "Ref": "AWS::AccountId" },
+										":topic/iotbutton/",
+										{ "Ref": "IoTButtonDSN" }
+									]
+								]
+							}
+						}
+					]
+				}
+			}
+		},
+
+		"IoTButtonPolicyPrincipalAttachment": {
+			"Type": "AWS::IoT::PolicyPrincipalAttachment",
+			"Properties": {
+				"PolicyName": { "Ref": "IoTButtonPolicy" },
+				"Principal": { "Ref": "IoTCertificateARN" }
+			}
+		},
+
+		"IoTButtonPrincipalAttachment": {
+			"Type" : "AWS::IoT::ThingPrincipalAttachment",
+			"Properties": {
+				"ThingName": { "Ref": "IoTButton" },
+				"Principal": { "Ref": "IoTCertificateARN" }
+			}
+		},
+
+		"SNSTopic": {
+			"Type": "AWS::SNS::Topic",
+			"Properties": {
+				"DisplayName": {
+					"Fn::Join": [
+						"",
+						[
+							{ "Ref": "IoTButton" },
+							" Button Press Notification"
+						]
+					]
+				},
+				"TopicName": { "Ref": "SNSTopicName" },
+				"Subscription": [
+					{
+						"Endpoint": { "Ref": "PhoneNumber" },
+						"Protocol": "sms"
+					}
+				]
+			}
+		},
+
+		"SNSTopicRole": {
+			"Type": "AWS::IAM::Role",
+			"Properties": {
+				"RoleName": {
+					"Fn::Join": [
+						"",
+						[
+							{ "Ref": "SNSTopicName" },
+							"-role"
+						]
+					]
+				},
+				"AssumeRolePolicyDocument": {
+					"Version": "2012-10-17",
+					"Statement": [
+						{
+							"Effect": "Allow",
+							"Principal": {
+								"Service": "iot.amazonaws.com"
+							},
+							"Action": "sts:AssumeRole"
+						}
+					]
+				},
+				"Policies": [
+					{
+						"PolicyName": {
+							"Fn::Join": [
+								"",
+								[
+									{ "Ref": "SNSTopicName" },
+									"-policy"
+								]
+							]
+						},
+						"PolicyDocument": {
+							"Version": "2012-10-17",
+							"Statement": [
+								{
+									"Effect": "Allow",
+									"Action": "sns:Publish",
+									"Resource": [
+										{
+											"Fn::Join": [
+												":",
+												[
+													"arn:aws:sns",
+													{ "Ref": "AWS::Region" },
+													{ "Ref": "AWS::AccountId" },
+													{ "Ref": "SNSTopicName" }
+												]
+											]
+										}
+									]
+								}
+							]
+						}
+					}
+				]
+			}
+		},
+
+		"IoTTopicRule": {
+			"Type": "AWS::IoT::TopicRule",
+			"Properties": {
+				"RuleName": {
+					"Fn::Join": ["", ["iotbutton_", { "Ref": "IoTButtonDSN" }]]
+				},
+				"TopicRulePayload": {
+					"Actions": [
+						{
+							"Sns": {
+								"RoleArn": {
+							      "Fn::GetAtt": [ "SNSTopicRole", "Arn" ]
+							    },
+							    "TargetArn": {
+							      "Ref": "SNSTopic"
+							    }
+							}
+						}
+					],
+					"AwsIotSqlVersion": "2015-10-08",
+					"RuleDisabled": false,
+					"Sql": {
+						"Fn::Join": [
+							"",
+							[
+								"SELECT * FROM 'iotbutton/",
+								{ "Ref": "IoTButtonDSN" },
+								"'"
+							]
+						]
+					}
+				}
+			}
+		}
+	}
+}

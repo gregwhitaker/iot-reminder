@@ -1,7 +1,6 @@
 iot-reminder
 ===
-
-TBD
+Use an [AWS IoT Button](https://aws.amazon.com/iot/button/) to set reminders for yourself.
 
 ##License
 Copyright 2016 Greg Whitaker
